@@ -1,56 +1,16 @@
-#!/usr/bin/env python3
-
-from random import randint, choice as rc
-
-from faker import Faker
-
-from app import app
-from models import db, Article, User
-
-fake = Faker()
+from app import app, db, User, Article
 
 with app.app_context():
+    db.drop_all()
+    db.create_all()
 
-    print("Deleting all records...")
-    Article.query.delete()
-    User.query.delete()
+    user1 = User(username="alex")
+    user2 = User(username="stacey")
 
-    fake = Faker()
+    a1 = Article(title="Public Post", content="Visible to everyone.", is_member_only=False)
+    a2 = Article(title="Secret Post", content="Exclusive content.", is_member_only=True)
 
-    print("Creating users...")
-    users = []
-    usernames = []
-    for i in range(25):
-
-        username = fake.first_name()
-        while username in usernames:
-            username = fake.first_name()
-        
-        usernames.append(username)
-
-        user = User(username=username)
-        users.append(user)
-
-    db.session.add_all(users)
-
-    print("Creating articles...")
-    articles = []
-    for i in range(100):
-        content = fake.paragraph(nb_sentences=8)
-        preview = content[:25] + '...'
-        
-        article = Article(
-            author=fake.name(),
-            title=fake.sentence(),
-            content=content,
-            preview=preview,
-            minutes_to_read=randint(1,20),
-            is_member_only = rc([True, False, False])
-        )
-
-        articles.append(article)
-
-    db.session.add_all(articles)
-    
+    db.session.add_all([user1, user2, a1, a2])
     db.session.commit()
-    print("Complete.")
+
+    print("✅ Database seeded!")

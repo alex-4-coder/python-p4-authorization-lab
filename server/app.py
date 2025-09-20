@@ -1,108 +1,87 @@
-#!/usr/bin/env python3
-
-from flask import Flask, make_response, jsonify, request, session
+from flask import Flask, request, jsonify, session
 from flask_migrate import Migrate
-from flask_restful import Api, Resource
-
-from models import db, Article, User
+from models import db, User, Article
 
 app = Flask(__name__)
-app.secret_key = b'Y\xf1Xz\x00\xad|eQ\x80t \xca\x1a\x10K'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.json.compact = False
 
-migrate = Migrate(app, db)
+# ---------- Config ----------
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///app.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.secret_key = "super-secret"  # Needed for sessions
 
 db.init_app(app)
-
-api = Api(app)
-
-class ClearSession(Resource):
-
-    def delete(self):
-    
-        session['page_views'] = None
-        session['user_id'] = None
-
-        return {}, 204
-
-class IndexArticle(Resource):
-    
-    def get(self):
-        articles = [article.to_dict() for article in Article.query.all()]
-        return make_response(jsonify(articles), 200)
-
-class ShowArticle(Resource):
-
-    def get(self, id):
-
-        article = Article.query.filter(Article.id == id).first()
-        article_json = article.to_dict()
-
-        if not session.get('user_id'):
-            session['page_views'] = 0 if not session.get('page_views') else session.get('page_views')
-            session['page_views'] += 1
-
-            if session['page_views'] <= 3:
-                return article_json, 200
-
-            return {'message': 'Maximum pageview limit reached'}, 401
-
-        return article_json, 200
-
-class Login(Resource):
-
-    def post(self):
-        
-        username = request.get_json().get('username')
-        user = User.query.filter(User.username == username).first()
-
-        if user:
-        
-            session['user_id'] = user.id
-            return user.to_dict(), 200
-
-        return {}, 401
-
-class Logout(Resource):
-
-    def delete(self):
-
-        session['user_id'] = None
-        
-        return {}, 204
-
-class CheckSession(Resource):
-
-    def get(self):
-        
-        user_id = session['user_id']
-        if user_id:
-            user = User.query.filter(User.id == user_id).first()
-            return user.to_dict(), 200
-        
-        return {}, 401
-
-class MemberOnlyIndex(Resource):
-    
-    def get(self):
-        pass
-
-class MemberOnlyArticle(Resource):
-    
-    def get(self, id):
-        pass
-
-api.add_resource(ClearSession, '/clear', endpoint='clear')
-api.add_resource(IndexArticle, '/articles', endpoint='article_list')
-api.add_resource(ShowArticle, '/articles/<int:id>', endpoint='show_article')
-api.add_resource(Login, '/login', endpoint='login')
-api.add_resource(Logout, '/logout', endpoint='logout')
-api.add_resource(CheckSession, '/check_session', endpoint='check_session')
-api.add_resource(MemberOnlyIndex, '/members_only_articles', endpoint='member_index')
-api.add_resource(MemberOnlyArticle, '/members_only_articles/<int:id>', endpoint='member_article')
+migrate = Migrate(app, db)
 
 
-if __name__ == '__main__':
+# ---------- Utility Routes ----------
+
+@app.route("/clear")
+def clear_session():
+    session.clear()
+    return {}, 200
+
+
+# ---------- Auth Routes ----------
+
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    username = data.get("username")
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "Invalid username"}), 401
+
+    # Save user_id in session
+    session["user_id"] = user.id
+    return jsonify({"message": f"Logged in as {user.username}"}), 200
+
+
+@app.route("/logout", methods=["DELETE"])
+def logout():
+    session.pop("user_id", None)
+    return jsonify({"message": "Logged out"}), 200
+
+
+# ---------- Member-only Routes ----------
+
+@app.route("/members_only_articles")
+def member_only_articles():
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    articles = Article.query.filter_by(is_member_only=True).all()
+    return jsonify([{
+        "id": a.id,
+        "title": a.title,
+        "content": a.content,
+        "is_member_only": a.is_member_only
+    } for a in articles]), 200
+
+
+@app.route("/members_only_articles/<int:id>")
+def member_only_article(id):
+    if "user_id" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    article = Article.query.get(id)
+    if not article:
+        return jsonify({"error": "Article not found"}), 404
+
+    return jsonify({
+        "id": article.id,
+        "title": article.title,
+        "content": article.content,
+        "is_member_only": article.is_member_only
+    }), 200
+
+
+# ---------- Home ----------
+
+@app.route("/")
+def index():
+    return {"message": "Flask API with session auth running!"}, 200
+
+
+if __name__ == "__main__":
     app.run(port=5555, debug=True)
